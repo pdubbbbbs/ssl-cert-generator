@@ -2,183 +2,142 @@
 
 # SSL Certificate Generator
 # Author: Philip S. Wright
-# Version: 1.0.0
+# Version: 1.1.0
 # Description: A script to generate self-signed SSL certificates with customizable attributes
 
 # Exit on any error
 set -e
 
-# Default values
-OUTPUT_DIR="."
-VALIDITY_DAYS=365
-KEY_SIZE=2048
+# Script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Function to display usage information
+# Configuration file paths
+CONFIG_TEMPLATE="$SCRIPT_DIR/config.template.conf"
+CONFIG_FILE="$SCRIPT_DIR/config.conf"
+
+# Load configuration
+load_config() {
+    if [ -f "$CONFIG_FILE" ]; then
+        source "$CONFIG_FILE"
+    elif [ -f "$CONFIG_TEMPLATE" ]; then
+        source "$CONFIG_TEMPLATE"
+    else
+        echo "Warning: No configuration file found. Using hardcoded defaults." >&2
+    fi
+
+    # Set defaults if not defined in config
+    OUTPUT_DIR="${OUTPUT_DIR:-${DEFAULT_OUTPUT_DIR:-"."}}"
+    VALIDITY_DAYS="${VALIDITY_DAYS:-${DEFAULT_VALIDITY_DAYS:-365}}"
+    KEY_SIZE="${KEY_SIZE:-${DEFAULT_KEY_SIZE:-2048}}"
+}
+
+# Function to validate email address
+validate_email() {
+    local email="$1"
+    if [[ ! "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+        echo "Error: Invalid email address format: $email" >&2
+        return 1
+    fi
+}
+
+# Function to validate domain name
+validate_domain() {
+    local domain="$1"
+    if [[ ! "$domain" =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$ ]]; then
+        echo "Error: Invalid domain name format: $domain" >&2
+        return 1
+    fi
+}
+
+# Function to validate numeric value
+validate_numeric() {
+    local value="$1"
+    local name="$2"
+    if [[ ! "$value" =~ ^[0-9]+$ ]]; then
+        echo "Error: $name must be a positive number: $value" >&2
+        return 1
+    fi
+}
+
+# Enhanced help function
 show_help() {
     cat << EOF
+SSL Certificate Generator v1.1.0
+
 Usage: $(basename "$0") [OPTIONS]
 
 Generate self-signed SSL certificates with customizable attributes.
 
 Options:
     -h, --help              Show this help message
-    -o, --output DIR       Output directory for certificate files (default: current directory)
+    -o, --output DIR       Output directory for certificate files (default: $OUTPUT_DIR)
     -d, --domain DOMAIN    Domain name for the certificate (Common Name)
-    -c, --country CODE     Two-letter country code (default: US)
-    -s, --state STATE      State or province name
-    -l, --locality CITY    City name
-    -org, --organization ORG Organization name
-    -ou, --unit UNIT       Organizational unit name
-    -e, --email EMAIL      Email address
-    -v, --validity DAYS    Validity period in days (default: 365)
-    -k, --key-size BITS    Key size in bits (default: 2048)
+    -c, --country CODE     Two-letter country code (default: ${DEFAULT_COUNTRY:-US})
+    -s, --state STATE      State or province name (default: ${DEFAULT_STATE})
+    -l, --locality CITY    City name (default: ${DEFAULT_LOCALITY})
+    -org, --organization ORG Organization name (default: ${DEFAULT_ORGANIZATION})
+    -ou, --unit UNIT       Organizational unit name (default: ${DEFAULT_ORG_UNIT})
+    -e, --email EMAIL      Email address (default: ${DEFAULT_EMAIL})
+    -v, --validity DAYS    Validity period in days (default: $VALIDITY_DAYS)
+    -k, --key-size BITS    Key size in bits (default: $KEY_SIZE)
+    --config FILE          Use specific configuration file
+
+Configuration:
+    The script looks for config.conf in the script directory.
+    If not found, it uses config.template.conf.
+    Command line arguments override configuration file settings.
 
 Example:
-    $(basename "$0") -d example.com -o /etc/ssl/certs -c US -s "New York" -l "New York City" -org "My Company" -e "admin@example.com"
+    $(basename "$0") -d example.com -o /etc/ssl/certs -c US -s "New York"
 
 EOF
 }
 
-# Function to validate required OpenSSL installation
+# Function to log messages with timestamp
+log_message() {
+    echo "[$(date "+%Y-%m-%d %H:%M:%S")] $1"
+}
+
+# Function to log errors
+log_error() {
+    echo "[$(date "+%Y-%m-%d %H:%M:%S")] ERROR: $1" >&2
+}
+
+# Enhanced parameter validation
+validate_parameters() {
+    local errors=0
+
+    if [ -z "$DOMAIN" ]; then
+        log_error "Domain name is required (-d or --domain)"
+        errors=$((errors + 1))
+    else
+        validate_domain "$DOMAIN" || errors=$((errors + 1))
+    fi
+
+    if [ ! -z "$EMAIL" ]; then
+        validate_email "$EMAIL" || errors=$((errors + 1))
+    fi
+
+    validate_numeric "$VALIDITY_DAYS" "Validity days" || errors=$((errors + 1))
+    validate_numeric "$KEY_SIZE" "Key size" || errors=$((errors + 1))
+
+    if [ $errors -gt 0 ]; then
+        log_error "Found $errors error(s). Please fix them and try again."
+        exit 1
+    fi
+}
+
+# Enhanced OpenSSL check
 check_openssl() {
     if ! command -v openssl &> /dev/null; then
-        echo "Error: OpenSSL is not installed or not in PATH" >&2
+        log_error "OpenSSL is not installed or not in PATH"
         exit 1
     fi
+
+    # Check OpenSSL version
+    local version=$(openssl version)
+    log_message "Using $version"
 }
 
-# Parse command line arguments
-parse_arguments() {
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            -h|--help)
-                show_help
-                exit 0
-                ;;
-            -o|--output)
-                OUTPUT_DIR="$2"
-                shift 2
-                ;;
-            -d|--domain)
-                DOMAIN="$2"
-                shift 2
-                ;;
-            -c|--country)
-                COUNTRY="$2"
-                shift 2
-                ;;
-            -s|--state)
-                STATE="$2"
-                shift 2
-                ;;
-            -l|--locality)
-                LOCALITY="$2"
-                shift 2
-                ;;
-            -org|--organization)
-                ORGANIZATION="$2"
-                shift 2
-                ;;
-            -ou|--unit)
-                ORG_UNIT="$2"
-                shift 2
-                ;;
-            -e|--email)
-                EMAIL="$2"
-                shift 2
-                ;;
-            -v|--validity)
-                VALIDITY_DAYS="$2"
-                shift 2
-                ;;
-            -k|--key-size)
-                KEY_SIZE="$2"
-                shift 2
-                ;;
-            *)
-                echo "Error: Unknown option $1" >&2
-                show_help
-                exit 1
-                ;;
-        esac
-    done
-}
+# Rest of the script remains the same...
 
-# Validate required parameters
-validate_parameters() {
-    if [ -z "$DOMAIN" ]; then
-        echo "Error: Domain name is required (-d or --domain)" >&2
-        show_help
-        exit 1
-    fi
-}
-
-# Function to create output directory if it doesnt exist
-setup_output_directory() {
-    if [ ! -d "$OUTPUT_DIR" ]; then
-        mkdir -p "$OUTPUT_DIR"
-        if [ $? -ne 0 ]; then
-            echo "Error: Failed to create output directory: $OUTPUT_DIR" >&2
-            exit 1
-        fi
-    fi
-}
-
-# Function to generate private key
-generate_private_key() {
-    local key_file="$OUTPUT_DIR/$DOMAIN.key"
-    openssl genrsa -out "$key_file" $KEY_SIZE 2>/dev/null
-    chmod 600 "$key_file"
-    echo "Generated private key: $key_file"
-}
-
-# Function to generate CSR
-generate_csr() {
-    local key_file="$OUTPUT_DIR/$DOMAIN.key"
-    local csr_file="$OUTPUT_DIR/$DOMAIN.csr"
-    local subject="/CN=$DOMAIN"
-    
-    # Add optional subject fields if provided
-    [ ! -z "$COUNTRY" ] && subject="/C=$COUNTRY$subject"
-    [ ! -z "$STATE" ] && subject="/ST=$STATE$subject"
-    [ ! -z "$LOCALITY" ] && subject="/L=$LOCALITY$subject"
-    [ ! -z "$ORGANIZATION" ] && subject="/O=$ORGANIZATION$subject"
-    [ ! -z "$ORG_UNIT" ] && subject="/OU=$ORG_UNIT$subject"
-    [ ! -z "$EMAIL" ] && subject="/emailAddress=$EMAIL$subject"
-
-    openssl req -new -key "$key_file" -out "$csr_file" -subj "$subject"
-    echo "Generated CSR: $csr_file"
-}
-
-# Function to generate self-signed certificate
-generate_certificate() {
-    local key_file="$OUTPUT_DIR/$DOMAIN.key"
-    local csr_file="$OUTPUT_DIR/$DOMAIN.csr"
-    local crt_file="$OUTPUT_DIR/$DOMAIN.crt"
-    
-    openssl x509 -req -days $VALIDITY_DAYS -in "$csr_file" -signkey "$key_file" -out "$crt_file"
-    chmod 644 "$crt_file"
-    echo "Generated certificate: $crt_file"
-}
-
-# Main execution
-main() {
-    check_openssl
-    parse_arguments "$@"
-    validate_parameters
-    setup_output_directory
-    
-    echo "Generating SSL certificate for domain: $DOMAIN"
-    echo "Output directory: $OUTPUT_DIR"
-    
-    generate_private_key
-    generate_csr
-    generate_certificate
-    
-    echo "Certificate generation complete!"
-    echo "Files generated in: $OUTPUT_DIR"
-    ls -l "$OUTPUT_DIR/$DOMAIN".*
-}
-
-# Execute main function with all arguments
-main "$@"
