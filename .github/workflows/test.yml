@@ -1,0 +1,38 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y openssl shellcheck
+
+    - name: Shell script syntax check
+      run: |
+        shellcheck generate-ssl-cert.sh
+        shellcheck install-proxmox-cert.sh
+
+    - name: Test certificate generation
+      run: |
+        chmod +x generate-ssl-cert.sh
+        ./generate-ssl-cert.sh -d test.example.com -o ./certs
+        openssl x509 -in ./certs/test.example.com.crt -text -noout
+
+    - name: Security scan
+      uses: github/codeql-action/init@v2
+      with:
+        languages: shell
+
+    - name: Run CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
