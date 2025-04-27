@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    continue-on-error: false # Stop workflow on any job failure
 
     steps:
     - uses: actions/checkout@v3
@@ -17,22 +18,80 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y openssl shellcheck
+      if: success()
 
     - name: Shell script syntax check
       run: |
         shellcheck generate-ssl-cert.sh
         shellcheck install-proxmox-cert.sh
+      if: success()
 
     - name: Test certificate generation
       run: |
         chmod +x generate-ssl-cert.sh
         ./generate-ssl-cert.sh -d test.example.com -o ./certs
         openssl x509 -in ./certs/test.example.com.crt -text -noout
+      if: success()
 
     - name: Security scan
       uses: github/codeql-action/init@v2
       with:
         languages: shell
+      if: success()
 
     - name: Run CodeQL Analysis
       uses: github/codeql-action/analyze@v2
+      if: success()
+
+    - name: Send email on failure
+      if: failure()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: ${{secrets.SMTP_SERVER}}
+        server_port: ${{secrets.SMTP_PORT}}
+        username: ${{secrets.SMTP_USERNAME}}
+        password: ${{secrets.SMTP_PASSWORD}}
+        subject: "❌ GitHub Actions job failed: ${{ github.repository }}"
+        body: |
+          GitHub Actions workflow has failed!
+          
+          Repository: ${{ github.repository }}
+          Workflow: ${{ github.workflow }}
+          Run: ${{ github.run_number }}
+          
+          Error Details:
+          - Commit: ${{ github.sha }}
+          - Branch: ${{ github.ref }}
+          - Trigger: ${{ github.event_name }}
+          
+          View the run for more details:
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        to: ${{secrets.NOTIFICATION_EMAIL}}
+        from: GitHub Actions <${{secrets.SMTP_USERNAME}}>
+
+    - name: Send success notification
+      if: success()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: ${{secrets.SMTP_SERVER}}
+        server_port: ${{secrets.SMTP_PORT}}
+        username: ${{secrets.SMTP_USERNAME}}
+        password: ${{secrets.SMTP_PASSWORD}}
+        subject: "✅ GitHub Actions completed successfully: ${{ github.repository }}"
+        body: |
+          GitHub Actions workflow has completed successfully!
+          
+          Repository: ${{ github.repository }}
+          Workflow: ${{ github.workflow }}
+          Run: ${{ github.run_number }}
+          
+          Details:
+          - Commit: ${{ github.sha }}
+          - Branch: ${{ github.ref }}
+          - Trigger: ${{ github.event_name }}
+          
+          View the run:
+          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        to: ${{secrets.NOTIFICATION_EMAIL}}
+        from: GitHub Actions <${{secrets.SMTP_USERNAME}}>
+
