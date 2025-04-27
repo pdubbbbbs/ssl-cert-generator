@@ -37,9 +37,9 @@ run_test "Private key permissions" \
 # Test network error handling
 echo -e "${YELLOW}Testing network error handling...${NC}"
 
-# Modified network timeout test
+# Use timeout command for network test
 run_test "Network timeout handling" \
-    "(nc -z -w 1 nonexistent.example.com 443 2>/dev/null || true) && exit 0" 0
+    "timeout 0.1s ping -c 1 nonexistent.example.com >/dev/null 2>&1 || [ $? -eq 124 ]"
 
 run_test "Unreachable host handling" \
     "../generate-ssl-cert.sh -d unreachable.example.com -o test_certs || [ $? -eq 1 ]"
