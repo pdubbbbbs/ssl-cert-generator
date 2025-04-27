@@ -28,6 +28,7 @@ jobs:
         shellcheck install-proxmox-cert.sh
         shellcheck tests/run-tests.sh
         shellcheck tests/advanced-tests.sh
+        shellcheck tests/performance-tests.sh
       if: steps.install.outcome == 'success'
 
     - name: Run basic test suite
@@ -35,9 +36,6 @@ jobs:
       run: |
         cd tests
         ./run-tests.sh
-        echo "BASIC_TEST_LOG<<EOF" >> $GITHUB_ENV
-        cat test_results.log >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
       if: steps.lint.outcome == 'success'
 
     - name: Run advanced test suite
@@ -45,57 +43,59 @@ jobs:
       run: |
         cd tests
         ./advanced-tests.sh
-        echo "ADVANCED_TEST_LOG<<EOF" >> $GITHUB_ENV
-        cat test_results.log >> $GITHUB_ENV
-        echo "EOF" >> $GITHUB_ENV
       if: steps.basic_tests.outcome == 'success'
+
+    - name: Run performance tests
+      id: perf_tests
+      run: |
+        cd tests
+        ./performance-tests.sh
+        ./metrics-summary.sh
+      if: steps.advanced_tests.outcome == 'success'
 
     - name: Security scan
       id: security
       uses: github/codeql-action/init@v2
       with:
         languages: shell
-      if: steps.advanced_tests.outcome == 'success'
+      if: steps.perf_tests.outcome == 'success'
 
     - name: Run CodeQL Analysis
       id: codeql
       uses: github/codeql-action/analyze@v2
       if: steps.security.outcome == 'success'
 
-    - name: Generate test coverage report
-      id: coverage
+    - name: Upload test artifacts
+      uses: actions/upload-artifact@v2
+      if: always()
+      with:
+        name: test-results
+        path: |
+          tests/test_results/reports/
+          tests/test_results/metrics/
+          tests/test_results/backups/
+
+    - name: Generate test summary
+      id: summary
+      if: always()
       run: |
         {
-          echo "# Test Execution Report"
+          echo "# Test Results Summary"
           echo
-          echo "## Build Information"
-          echo "- Repository: \`${{ github.repository }}\`"
-          echo "- Branch: \`${{ github.ref }}\`"
-          echo "- Commit: \`${{ github.sha }}\`"
-          echo "- Triggered by: \`${{ github.event_name }}\`"
+          echo "## Test Suites"
+          echo "- Basic Tests: ${{ steps.basic_tests.outcome }}"
+          echo "- Advanced Tests: ${{ steps.advanced_tests.outcome }}"
+          echo "- Performance Tests: ${{ steps.perf_tests.outcome }}"
+          echo "- Security Scan: ${{ steps.security.outcome }}"
+          echo "- CodeQL Analysis: ${{ steps.codeql.outcome }}"
           echo
-          echo "## Test Results"
-          echo "### Basic Tests"
-          echo "\`\`\`"
-          echo "${{ env.BASIC_TEST_LOG }}"
-          echo "\`\`\`"
-          echo
-          echo "### Advanced Tests"
-          echo "\`\`\`"
-          echo "${{ env.ADVANCED_TEST_LOG }}"
-          echo "\`\`\`"
-          echo
-          echo "## Coverage Analysis"
-          cat tests/test-coverage.md
-          echo
-          echo "## Status"
-          echo "- Dependencies: \`${{ steps.install.outcome }}\`"
-          echo "- Linting: \`${{ steps.lint.outcome }}\`"
-          echo "- Basic Tests: \`${{ steps.basic_tests.outcome }}\`"
-          echo "- Advanced Tests: \`${{ steps.advanced_tests.outcome }}\`"
-          echo "- Security Scan: \`${{ steps.security.outcome }}\`"
-          echo "- CodeQL Analysis: \`${{ steps.codeql.outcome }}\`"
-        } > test_report.md
+          echo "## Performance Metrics"
+          if [ -f "tests/test_results/reports/metrics-summary.md" ]; then
+            cat tests/test_results/reports/metrics-summary.md
+          else
+            echo "No performance metrics available"
+          fi
+        } > test_summary.md
 
     - name: Send email on failure
       if: failure()
@@ -106,10 +106,11 @@ jobs:
         username: ${{secrets.SMTP_USERNAME}}
         password: ${{secrets.SMTP_PASSWORD}}
         subject: "⚠️ SSL Certificate Generator: Tests Failed"
-        body_path: test_report.md
+        body_path: test_summary.md
         to: ${{secrets.NOTIFICATION_EMAIL}}
         from: SSL Certificate Generator CI <${{secrets.SMTP_USERNAME}}>
         content_type: text/markdown
+        attachments: tests/test_results/reports/metrics-summary.md
 
     - name: Send success notification
       if: success()
@@ -120,15 +121,16 @@ jobs:
         username: ${{secrets.SMTP_USERNAME}}
         password: ${{secrets.SMTP_PASSWORD}}
         subject: "✅ SSL Certificate Generator: All Tests Passed"
-        body_path: test_report.md
+        body_path: test_summary.md
         to: ${{secrets.NOTIFICATION_EMAIL}}
         from: SSL Certificate Generator CI <${{secrets.SMTP_USERNAME}}>
         content_type: text/markdown
+        attachments: tests/test_results/reports/metrics-summary.md
 
-    - name: Upload test report
+    - name: Upload test summary
       uses: actions/upload-artifact@v2
       if: always()
       with:
-        name: test-report
-        path: test_report.md
+        name: test-summary
+        path: test_summary.md
 
