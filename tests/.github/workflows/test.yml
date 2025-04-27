@@ -1,0 +1,117 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    continue-on-error: false
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install dependencies
+      id: install
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y openssl shellcheck
+      if: success()
+
+    - name: Shell script syntax check
+      id: lint
+      run: |
+        shellcheck generate-ssl-cert.sh
+        shellcheck install-proxmox-cert.sh
+        shellcheck tests/run-tests.sh
+        shellcheck tests/advanced-tests.sh
+      if: steps.install.outcome == 'success'
+
+    - name: Run basic test suite
+      id: basic_tests
+      run: |
+        cd tests
+        ./run-tests.sh
+        echo "BASIC_TEST_LOG<<EOF" >> $GITHUB_ENV
+        cat test_results.log >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+      if: steps.lint.outcome == 'success'
+
+    - name: Run advanced test suite
+      id: advanced_tests
+      run: |
+        cd tests
+        ./advanced-tests.sh
+        echo "ADVANCED_TEST_LOG<<EOF" >> $GITHUB_ENV
+        cat test_results.log >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
+      if: steps.basic_tests.outcome == 'success'
+
+    - name: Security scan
+      id: security
+      uses: github/codeql-action/init@v2
+      with:
+        languages: shell
+      if: steps.advanced_tests.outcome == 'success'
+
+    - name: Run CodeQL Analysis
+      id: codeql
+      uses: github/codeql-action/analyze@v2
+      if: steps.security.outcome == 'success'
+
+    - name: Generate test coverage report
+      id: coverage
+      run: |
+        {
+          echo "# Test Execution Report"
+          echo "## Test Suites"
+          echo "### Basic Tests"
+          echo "\`\`\`"
+          echo "${{ env.BASIC_TEST_LOG }}"
+          echo "\`\`\`"
+          echo "### Advanced Tests"
+          echo "\`\`\`"
+          echo "${{ env.ADVANCED_TEST_LOG }}"
+          echo "\`\`\`"
+          echo "## Coverage Analysis"
+          cat tests/test-coverage.md
+        } > test_report.md
+
+    - name: Send email on failure
+      if: failure()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: ${{secrets.SMTP_SERVER}}
+        server_port: ${{secrets.SMTP_PORT}}
+        username: ${{secrets.SMTP_USERNAME}}
+        password: ${{secrets.SMTP_PASSWORD}}
+        subject: "⚠️ SSL Certificate Generator: Tests Failed"
+        body_path: test_report.md
+        to: ${{secrets.NOTIFICATION_EMAIL}}
+        from: SSL Certificate Generator CI <${{secrets.SMTP_USERNAME}}>
+        content_type: text/markdown
+
+    - name: Send success notification
+      if: success()
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: ${{secrets.SMTP_SERVER}}
+        server_port: ${{secrets.SMTP_PORT}}
+        username: ${{secrets.SMTP_USERNAME}}
+        password: ${{secrets.SMTP_PASSWORD}}
+        subject: "✅ SSL Certificate Generator: All Tests Passed"
+        body_path: test_report.md
+        to: ${{secrets.NOTIFICATION_EMAIL}}
+        from: SSL Certificate Generator CI <${{secrets.SMTP_USERNAME}}>
+        content_type: text/markdown
+
+    - name: Upload test report
+      uses: actions/upload-artifact@v2
+      if: always()
+      with:
+        name: test-report
+        path: test_report.md
+
