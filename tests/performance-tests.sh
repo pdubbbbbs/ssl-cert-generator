@@ -6,6 +6,9 @@
 # Source common test functions
 source "$(dirname "$0")/test-functions.sh"
 
+# Set up strict error handling
+set -e
+
 # Load configuration
 if [ -f "./proxmox-test.conf" ]; then
     source "./proxmox-test.conf"
@@ -15,20 +18,24 @@ else
 fi
 
 # Test directory structure
-TEST_DIR="./test_results"
+TEST_DIR="$(pwd)/test_results"
 CERTS_DIR="$TEST_DIR/certs"
 METRICS_DIR="$TEST_DIR/metrics"
 BACKUP_DIR="$TEST_DIR/backups"
 RESTORE_DIR="$TEST_DIR/restore"
 REPORTS_DIR="$TEST_DIR/reports"
 
-# Create directory structure
-create_test_dirs() {
-    mkdir -p "$CERTS_DIR" "$METRICS_DIR" "$BACKUP_DIR" "$RESTORE_DIR" "$REPORTS_DIR"
-}
-
 # Performance metrics file
 METRICS_FILE="$METRICS_DIR/performance_metrics.log"
+
+# Function to set up test environment
+setup_test_env() {
+    echo "Setting up test environment..."
+    rm -rf "$TEST_DIR" # Clean up any previous test results
+    mkdir -p "$CERTS_DIR" "$METRICS_DIR" "$BACKUP_DIR" "$RESTORE_DIR" "$REPORTS_DIR"
+    touch "$METRICS_FILE"
+    echo "Test environment initialized at $(date)" > "$METRICS_FILE"
+}
 
 # Function to log metrics
 log_metric() {
@@ -52,8 +59,7 @@ measure_execution() {
 }
 
 # Initialize test environment
-create_test_dirs
-echo "Starting performance tests at $(date)" > "$METRICS_FILE"
+setup_test_env
 
 echo -e "${YELLOW}Running Performance and Load Tests...${NC}"
 
@@ -86,6 +92,7 @@ for i in {1..5}; do
 done
 
 # Calculate average
+echo "Calculating average generation time..."
 average_duration=$(awk '/single_cert_gen/ {total += $4; count++} END {print total/count}' "$METRICS_FILE")
 log_metric "single_cert_gen_average" "$average_duration" "seconds"
 
@@ -136,16 +143,23 @@ run_test "Restore from backup" \
 
 # Test certificate corruption recovery
 echo "Testing corruption recovery..."
-cp "$CERTS_DIR/$PROXMOX_DOMAIN.crt" "$CERTS_DIR/$PROXMOX_DOMAIN.crt.bak"
-run_test "Simulate certificate corruption" \
-    "echo 'corrupted' > $CERTS_DIR/$PROXMOX_DOMAIN.crt"
+test_cert="$CERTS_DIR/$PROXMOX_DOMAIN.crt"
+test_cert_bak="$CERTS_DIR/$PROXMOX_DOMAIN.crt.bak"
 
-run_test "Detect corruption" \
-    "! openssl x509 -in $CERTS_DIR/$PROXMOX_DOMAIN.crt -noout -text"
+if [ -f "$test_cert" ]; then
+    cp "$test_cert" "$test_cert_bak"
+    run_test "Simulate certificate corruption" \
+        "echo 'corrupted' > '$test_cert'"
 
-run_test "Recover from corruption" \
-    "mv $CERTS_DIR/$PROXMOX_DOMAIN.crt.bak $CERTS_DIR/$PROXMOX_DOMAIN.crt && \
-     openssl x509 -in $CERTS_DIR/$PROXMOX_DOMAIN.crt -noout -text"
+    run_test "Detect corruption" \
+        "! openssl x509 -in '$test_cert' -noout -text"
+
+    run_test "Recover from corruption" \
+        "mv '$test_cert_bak' '$test_cert' && \
+         openssl x509 -in '$test_cert' -noout -text"
+else
+    log_error "Test certificate not found: $test_cert"
+fi
 
 # Generate performance report
 echo -e "\n${YELLOW}Generating Performance Report...${NC}"
@@ -206,6 +220,9 @@ echo "4. Recovery Scenarios: Complete"
 
 echo -e "\n${YELLOW}Average Certificate Generation Time:${NC}"
 awk '/single_cert_gen_average/ {print $4 " seconds"}' "$METRICS_FILE" || echo "N/A"
+
+echo -e "\n${YELLOW}Test Results Directory:${NC}"
+echo "$TEST_DIR"
 
 # Exit successfully
 exit 0
