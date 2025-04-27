@@ -67,17 +67,34 @@ jobs:
       run: |
         {
           echo "# Test Execution Report"
-          echo "## Test Suites"
+          echo
+          echo "## Build Information"
+          echo "- Repository: \`${{ github.repository }}\`"
+          echo "- Branch: \`${{ github.ref }}\`"
+          echo "- Commit: \`${{ github.sha }}\`"
+          echo "- Triggered by: \`${{ github.event_name }}\`"
+          echo
+          echo "## Test Results"
           echo "### Basic Tests"
           echo "\`\`\`"
           echo "${{ env.BASIC_TEST_LOG }}"
           echo "\`\`\`"
+          echo
           echo "### Advanced Tests"
           echo "\`\`\`"
           echo "${{ env.ADVANCED_TEST_LOG }}"
           echo "\`\`\`"
+          echo
           echo "## Coverage Analysis"
           cat tests/test-coverage.md
+          echo
+          echo "## Status"
+          echo "- Dependencies: \`${{ steps.install.outcome }}\`"
+          echo "- Linting: \`${{ steps.lint.outcome }}\`"
+          echo "- Basic Tests: \`${{ steps.basic_tests.outcome }}\`"
+          echo "- Advanced Tests: \`${{ steps.advanced_tests.outcome }}\`"
+          echo "- Security Scan: \`${{ steps.security.outcome }}\`"
+          echo "- CodeQL Analysis: \`${{ steps.codeql.outcome }}\`"
         } > test_report.md
 
     - name: Send email on failure
