@@ -34,34 +34,80 @@ show_progress() {
     printf "%${filled}s" | tr ' ' '#'
     printf "%${empty}s" | tr ' ' '-'
     printf "] %d%%" $percent
+    echo
 }
 
-# Function to validate input with timeout
-prompt_with_timeout() {
+# Function to validate input
+validate_input() {
+    local value="$1"
+    local type="$2"
+    local pattern=""
+    
+    case "$type" in
+        "domain")
+            pattern="^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
+            ;;
+        "ip")
+            pattern="^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$"
+            ;;
+        "email")
+            pattern="^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"
+            ;;
+        "port")
+            if [[ "$value" =~ ^[0-9]+$ ]] && [ "$value" -ge 1 ] && [ "$value" -le 65535 ]; then
+                return 0
+            fi
+            return 1
+            ;;
+        *)
+            return 0
+            ;;
+    esac
+    
+    [[ "$value" =~ $pattern ]]
+}
+
+# Function to get user input with validation
+get_input() {
     local prompt="$1"
-    local default="$2"
-    local timeout=30
-    local input
+    local type="$2"
+    local default="$3"
+    local value=""
+    local attempts=0
+    local max_attempts=3
     
-    echo -e -n "${BLUE}$prompt${NC} [${GREEN}$default${NC}] (${timeout}s timeout): "
-    read -t $timeout input
+    while [ $attempts -lt $max_attempts ]; do
+        echo -e -n "${BLUE}$prompt${NC} [${GREEN}$default${NC}]: "
+        read -r value
+        
+        # Use default if empty
+        if [ -z "$value" ]; then
+            value="$default"
+        fi
+        
+        # Validate input
+        if validate_input "$value" "$type"; then
+            echo "$value"
+            return 0
+        else
+            attempts=$((attempts + 1))
+            echo -e "${RED}Invalid input. Please try again. ($attempts/$max_attempts)${NC}"
+        fi
+    done
     
-    if [ $? -eq 142 ]; then
-        echo -e "\n${YELLOW}Using default value: $default${NC}"
-        echo "$default"
-        return
-    fi
-    
-    echo "${input:-$default}"
+    echo -e "${RED}Maximum attempts reached. Using default: $default${NC}"
+    echo "$default"
+    return 0
 }
 
 # Function to test connection
 test_connection() {
     local host=$1
     local port=$2
+    local timeout=5
     
     echo -e "\n${YELLOW}Testing connection to $host:$port...${NC}"
-    nc -zv -w 5 "$host" "$port" 2>/dev/null
+    nc -z -w $timeout "$host" "$port" 2>/dev/null
     if [ $? -eq 0 ]; then
         echo -e "${GREEN}Connection successful!${NC}"
         return 0
@@ -71,101 +117,90 @@ test_connection() {
     fi
 }
 
-# Save configuration function
-save_config() {
-    local config_file="$1"
+# Function to generate certificate
+generate_certificate() {
+    local domain="$1"
+    local ip="$2"
+    local country="$3"
+    local state="$4"
+    local locality="$5"
+    local org="$6"
+    local unit="$7"
+    local email="$8"
+    local days="$9"
+    local keysize="${10}"
+    local output_dir="./certs"
     
-    cat > "$config_file" << CONFIG
-# Proxmox Certificate Configuration
-# Generated on $(date)
-
-DOMAIN="$DOMAIN"
-IP_ADDRESS="$IP_ADDRESS"
-EMAIL="$EMAIL"
-SSH_PORT="$SSH_PORT"
-COUNTRY="$COUNTRY"
-STATE="$STATE"
-LOCALITY="$LOCALITY"
-ORGANIZATION="$ORGANIZATION"
-ORG_UNIT="$ORG_UNIT"
-VALIDITY_DAYS="$VALIDITY_DAYS"
-KEY_SIZE="$KEY_SIZE"
-BACKUP_DIR="$BACKUP_DIR"
-CONFIG
-
-    echo -e "${GREEN}Configuration saved to: $config_file${NC}"
-}
-
-# Load configuration function
-load_config() {
-    local config_file="$1"
-    if [ -f "$config_file" ]; then
-        source "$config_file"
-        echo -e "${GREEN}Configuration loaded from: $config_file${NC}"
-        return 0
+    mkdir -p "$output_dir"
+    
+    echo -e "\n${YELLOW}Generating certificate...${NC}"
+    if ! ./generate-ssl-cert.sh \
+        -d "$domain" \
+        -i "$ip" \
+        -o "$output_dir" \
+        -c "$country" \
+        -s "$state" \
+        -l "$locality" \
+        -org "$org" \
+        -ou "$unit" \
+        -e "$email" \
+        -v "$days" \
+        -k "$keysize"; then
+        echo -e "${RED}Certificate generation failed!${NC}"
+        return 1
     fi
-    return 1
+    
+    echo -e "${GREEN}Certificate generated successfully!${NC}"
+    return 0
 }
 
 # Main wizard function
 run_wizard() {
     local step=1
-    local total_steps=8
-    local config_file="proxmox-cert.conf"
+    local total_steps=7
     
     show_header
+    echo -e "${YELLOW}Welcome to the Proxmox Certificate Wizard${NC}"
+    echo -e "This wizard will guide you through generating and installing SSL certificates for your Proxmox server."
+    echo
+    read -p "Press Enter to continue..."
     
-    # Check for existing configuration
-    if [ -f "$config_file" ]; then
-        echo -e "${YELLOW}Found existing configuration.${NC}"
-        read -p "Load it? (Y/n) " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]] || [ -z "$REPLY" ]; then
-            load_config "$config_file"
-        fi
-    fi
-    
-    # Basic Information
+    # Step 1: Basic Information
     show_header
     echo -e "${PURPLE}Step $((step++))/$total_steps: Basic Information${NC}"
     show_progress $step $total_steps
-    echo
     
-    DOMAIN=$(prompt_with_timeout "Domain name" "${DOMAIN:-proxmox.local}")
-    IP_ADDRESS=$(prompt_with_timeout "IP address" "${IP_ADDRESS:-192.168.1.100}")
-    EMAIL=$(prompt_with_timeout "Admin email" "${EMAIL:-admin@example.com}")
-    SSH_PORT=$(prompt_with_timeout "SSH port" "${SSH_PORT:-22}")
+    DOMAIN=$(get_input "Domain name" "domain" "proxmox.local")
+    IP_ADDRESS=$(get_input "IP address" "ip" "192.168.1.100")
+    EMAIL=$(get_input "Admin email" "email" "admin@example.com")
+    SSH_PORT=$(get_input "SSH port" "port" "22")
     
-    # Organization Details
+    # Step 2: Organization Details
     show_header
     echo -e "${PURPLE}Step $((step++))/$total_steps: Organization Details${NC}"
     show_progress $step $total_steps
-    echo
     
-    COUNTRY=$(prompt_with_timeout "Country code (2 letters)" "${COUNTRY:-US}")
-    STATE=$(prompt_with_timeout "State/Province" "${STATE:-California}")
-    LOCALITY=$(prompt_with_timeout "City" "${LOCALITY:-San Francisco}")
-    ORGANIZATION=$(prompt_with_timeout "Organization name" "${ORGANIZATION:-Example Org}")
-    ORG_UNIT=$(prompt_with_timeout "Organization unit" "${ORG_UNIT:-IT Department}")
+    COUNTRY=$(get_input "Country code (2 letters)" "text" "US")
+    STATE=$(get_input "State/Province" "text" "California")
+    LOCALITY=$(get_input "City" "text" "San Francisco")
+    ORGANIZATION=$(get_input "Organization name" "text" "Example Org")
+    ORG_UNIT=$(get_input "Organization unit" "text" "IT Department")
     
-    # Certificate Configuration
+    # Step 3: Certificate Configuration
     show_header
     echo -e "${PURPLE}Step $((step++))/$total_steps: Certificate Configuration${NC}"
     show_progress $step $total_steps
-    echo
     
-    VALIDITY_DAYS=$(prompt_with_timeout "Certificate validity (days)" "${VALIDITY_DAYS:-365}")
-    KEY_SIZE=$(prompt_with_timeout "Key size (bits)" "${KEY_SIZE:-2048}")
-    BACKUP_DIR=$(prompt_with_timeout "Backup directory" "${BACKUP_DIR:-/root/cert_backups}")
+    VALIDITY_DAYS=$(get_input "Certificate validity (days)" "number" "365")
+    KEY_SIZE=$(get_input "Key size (bits)" "number" "2048")
     
-    # Connection Test
+    # Step 4: Connection Test
     show_header
     echo -e "${PURPLE}Step $((step++))/$total_steps: Connection Test${NC}"
     show_progress $step $total_steps
-    echo
     
     if ! test_connection "$IP_ADDRESS" "$SSH_PORT"; then
-        echo -e "${RED}Warning: Cannot connect to Proxmox server!${NC}"
+        echo -e "${YELLOW}Warning: Cannot connect to Proxmox server${NC}"
         read -p "Continue anyway? (y/N) " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -174,59 +209,45 @@ run_wizard() {
         fi
     fi
     
-    # Save Configuration
-    show_header
-    echo -e "${PURPLE}Step $((step++))/$total_steps: Save Configuration${NC}"
-    show_progress $step $total_steps
-    echo
-    
-    read -p "Save configuration for future use? (Y/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]] || [ -z "$REPLY" ]; then
-        save_config "$config_file"
-    fi
-    
-    # Generate Certificate
+    # Step 5: Generate Certificate
     show_header
     echo -e "${PURPLE}Step $((step++))/$total_steps: Generate Certificate${NC}"
     show_progress $step $total_steps
-    echo
     
-    if ! ./generate-ssl-cert.sh \
-        -d "$DOMAIN" \
-        -i "$IP_ADDRESS" \
-        -o "./certs" \
-        -c "$COUNTRY" \
-        -s "$STATE" \
-        -l "$LOCALITY" \
-        -org "$ORGANIZATION" \
-        -ou "$ORG_UNIT" \
-        -e "$EMAIL" \
-        -v "$VALIDITY_DAYS" \
-        -k "$KEY_SIZE"; then
-        echo -e "${RED}Certificate generation failed!${NC}"
+    if ! generate_certificate \
+        "$DOMAIN" \
+        "$IP_ADDRESS" \
+        "$COUNTRY" \
+        "$STATE" \
+        "$LOCALITY" \
+        "$ORGANIZATION" \
+        "$ORG_UNIT" \
+        "$EMAIL" \
+        "$VALIDITY_DAYS" \
+        "$KEY_SIZE"; then
         exit 1
     fi
     
-    # Install Certificate
+    # Step 6: Install Certificate
     show_header
     echo -e "${PURPLE}Step $((step++))/$total_steps: Install Certificate${NC}"
     show_progress $step $total_steps
-    echo
     
+    echo -e "\n${YELLOW}Installing certificate...${NC}"
     if ! ./install-proxmox-cert.sh \
         -d "$DOMAIN" \
         -i "$IP_ADDRESS" \
         -p "$SSH_PORT" \
-        -b "$BACKUP_DIR"; then
+        -k ~/.ssh/id_rsa; then
         echo -e "${RED}Certificate installation failed!${NC}"
         exit 1
     fi
     
-    # Completion
+    # Step 7: Completion
     show_header
     echo -e "${PURPLE}Step $((step++))/$total_steps: Complete${NC}"
     show_progress $step $total_steps
+    
     echo -e "\n${GREEN}Certificate generation and installation complete!${NC}"
     
     # Summary
@@ -235,7 +256,6 @@ run_wizard() {
     echo -e "IP Address: ${GREEN}$IP_ADDRESS${NC}"
     echo -e "Web Interface: ${GREEN}https://$DOMAIN:8006${NC}"
     echo -e "Certificate Location: ${GREEN}./certs/$DOMAIN.crt${NC}"
-    echo -e "Backup Location: ${GREEN}$BACKUP_DIR${NC}"
     
     # Next Steps
     echo -e "\n${YELLOW}Next Steps:${NC}"
