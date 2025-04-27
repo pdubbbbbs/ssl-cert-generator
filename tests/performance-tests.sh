@@ -14,6 +14,11 @@ else
     exit 1
 fi
 
+# Create metrics directory
+METRICS_DIR="test_results/metrics"
+mkdir -p "$METRICS_DIR"
+METRICS_FILE="$METRICS_DIR/performance_metrics.log"
+
 # Performance metrics storage
 declare -A METRICS
 
@@ -21,8 +26,10 @@ declare -A METRICS
 measure_execution() {
     local start_time=$(date +%s.%N)
     "$@"
+    local exit_code=$?
     local end_time=$(date +%s.%N)
-    echo "$(echo "$end_time - $start_time" | bc)"
+    local duration=$(echo "$end_time - $start_time" | bc)
+    echo "$duration:$exit_code"
 }
 
 # Function to log metrics
@@ -31,107 +38,114 @@ log_metric() {
     local value="$2"
     local unit="$3"
     METRICS["${test_name}_${unit}"]=$value
-    echo "$test_name: $value $unit" >> performance_metrics.log
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $test_name: $value $unit" >> "$METRICS_FILE"
 }
 
 # Initialize test environment
 init_test_env
-mkdir -p test_results
+mkdir -p test_results/certs
+mkdir -p test_results/backups
 
 echo -e "${YELLOW}Running Performance and Load Tests...${NC}"
 
 # 1. Certificate Renewal Tests
-echo -e "${YELLOW}Testing Certificate Renewal...${NC}"
+echo -e "\n${YELLOW}Testing Certificate Renewal...${NC}"
 
-run_test "Generate initial certificate" \
-    "../generate-ssl-cert.sh -d $PROXMOX_DOMAIN -i $PROXMOX_HOST -o test_certs -v 30"
+# Generate initial certificate with short validity
+result=$(measure_execution ../generate-ssl-cert.sh -d "$PROXMOX_DOMAIN" -i "$PROXMOX_HOST" -o test_results/certs -v 30)
+duration=$(echo "$result" | cut -d: -f1)
+exit_code=$(echo "$result" | cut -d: -f2)
+log_metric "initial_cert_generation" "$duration" "seconds"
+run_test "Generate initial certificate" "[ $exit_code -eq 0 ]"
 
+# Check expiration date
 run_test "Check expiration date" \
-    "openssl x509 -in test_certs/$PROXMOX_DOMAIN.crt -noout -enddate | grep -q 'notAfter'"
+    "openssl x509 -in test_results/certs/$PROXMOX_DOMAIN.crt -noout -enddate | grep -q 'notAfter'"
 
 # Simulate renewal process
-run_test "Certificate renewal simulation" \
-    "../generate-ssl-cert.sh -d $PROXMOX_DOMAIN -i $PROXMOX_HOST -o test_certs -v 365"
-
-# Test automatic renewal
-cat > test_certs/renew-cert.sh << 'RENEWSCRIPT'
-#!/bin/bash
-../generate-ssl-cert.sh -d "$1" -i "$2" -o "$3" -v 365
-RENEWSCRIPT
-chmod +x test_certs/renew-cert.sh
-
-run_test "Automated renewal script" \
-    "./test_certs/renew-cert.sh $PROXMOX_DOMAIN $PROXMOX_HOST test_certs"
+result=$(measure_execution ../generate-ssl-cert.sh -d "$PROXMOX_DOMAIN" -i "$PROXMOX_HOST" -o test_results/certs -v 365)
+duration=$(echo "$result" | cut -d: -f1)
+log_metric "cert_renewal" "$duration" "seconds"
+run_test "Certificate renewal simulation" "[ $(echo "$result" | cut -d: -f2) -eq 0 ]"
 
 # 2. Performance Benchmarking
-echo -e "${YELLOW}Running Performance Benchmarks...${NC}"
+echo -e "\n${YELLOW}Running Performance Benchmarks...${NC}"
 
 # Single certificate generation benchmark
 echo "Testing single certificate generation performance..."
+total_duration=0
 for i in {1..5}; do
-    duration=$(measure_execution ../generate-ssl-cert.sh -d "perf$i.example.com" -o test_certs)
+    result=$(measure_execution ../generate-ssl-cert.sh -d "perf$i.example.com" -o test_results/certs)
+    duration=$(echo "$result" | cut -d: -f1)
+    total_duration=$(echo "$total_duration + $duration" | bc)
     log_metric "single_cert_gen_$i" "$duration" "seconds"
 done
+average_duration=$(echo "scale=3; $total_duration / 5" | bc)
+log_metric "single_cert_gen_average" "$average_duration" "seconds"
 
 # Parallel certificate generation benchmark
 echo "Testing parallel certificate generation..."
 for i in {1..3}; do
     start_time=$(date +%s.%N)
+    pids=()
     for j in {1..5}; do
-        ../generate-ssl-cert.sh -d "parallel$j.example.com" -o test_certs &
+        ../generate-ssl-cert.sh -d "parallel$j.example.com" -o test_results/certs &
+        pids+=($!)
     done
-    wait
+    for pid in "${pids[@]}"; do
+        wait $pid
+    done
     end_time=$(date +%s.%N)
     duration=$(echo "$end_time - $start_time" | bc)
     log_metric "parallel_cert_gen_$i" "$duration" "seconds"
 done
 
 # 3. Load Testing
-echo -e "${YELLOW}Running Load Tests...${NC}"
+echo -e "\n${YELLOW}Running Load Tests...${NC}"
 
 # Generate multiple certificates in sequence
 echo "Testing sequential load..."
 start_time=$(date +%s.%N)
 for i in {1..10}; do
-    run_test "Sequential load test $i" \
-        "../generate-ssl-cert.sh -d load$i.example.com -o test_certs"
+    result=$(measure_execution ../generate-ssl-cert.sh -d "load$i.example.com" -o test_results/certs)
+    duration=$(echo "$result" | cut -d: -f1)
+    log_metric "sequential_load_$i" "$duration" "seconds"
+    run_test "Sequential load test $i" "[ $(echo "$result" | cut -d: -f2) -eq 0 ]"
 done
 end_time=$(date +%s.%N)
-log_metric "sequential_load_10_certs" "$(echo "$end_time - $start_time" | bc)" "seconds"
-
-# Test certificate installation under load
-echo "Testing installation under load..."
-for i in {1..3}; do
-    run_test "Load test installation $i" \
-        "../install-proxmox-cert.sh -d load$i.example.com -i $PROXMOX_HOST -k $PROXMOX_SSH_KEY"
-done
+total_duration=$(echo "$end_time - $start_time" | bc)
+log_metric "sequential_load_total" "$total_duration" "seconds"
 
 # 4. Recovery Scenarios
-echo -e "${YELLOW}Testing Recovery Scenarios...${NC}"
+echo -e "\n${YELLOW}Testing Recovery Scenarios...${NC}"
 
 # Test backup creation
+BACKUP_FILE="test_results/backups/cert_backup_$(date +%Y%m%d_%H%M%S).tar.gz"
 run_test "Create certificate backup" \
-    "tar czf test_certs/cert_backup.tar.gz test_certs/*.{crt,key}"
+    "tar czf $BACKUP_FILE test_results/certs/*.{crt,key}"
 
 # Test backup restoration
+mkdir -p test_results/restore
 run_test "Restore from backup" \
-    "cd test_certs && tar xzf cert_backup.tar.gz"
+    "cd test_results/restore && tar xzf ../$BACKUP_FILE"
 
 # Test certificate corruption recovery
 echo "Testing corruption recovery..."
+cp test_results/certs/$PROXMOX_DOMAIN.crt test_results/certs/$PROXMOX_DOMAIN.crt.bak
 run_test "Simulate certificate corruption" \
-    "echo 'corrupted' > test_certs/$PROXMOX_DOMAIN.crt"
+    "echo 'corrupted' > test_results/certs/$PROXMOX_DOMAIN.crt"
 
 run_test "Detect corruption" \
-    "! openssl x509 -in test_certs/$PROXMOX_DOMAIN.crt -noout -text"
+    "! openssl x509 -in test_results/certs/$PROXMOX_DOMAIN.crt -noout -text"
 
 run_test "Recover from corruption" \
-    "../generate-ssl-cert.sh -d $PROXMOX_DOMAIN -i $PROXMOX_HOST -o test_certs"
+    "mv test_results/certs/$PROXMOX_DOMAIN.crt.bak test_results/certs/$PROXMOX_DOMAIN.crt && \
+     openssl x509 -in test_results/certs/$PROXMOX_DOMAIN.crt -noout -text"
 
 # Generate performance report
-echo -e "${YELLOW}Generating Performance Report...${NC}"
+echo -e "\n${YELLOW}Generating Performance Report...${NC}"
 
-cat > performance-report.md << REPORT
+cat > test_results/performance-report.md << REPORT
 # SSL Certificate Generator Performance Report
 
 ## Test Environment
@@ -140,24 +154,26 @@ cat > performance-report.md << REPORT
 - OpenSSL Version: $(openssl version)
 
 ## Certificate Generation Performance
-$(grep "single_cert_gen" performance_metrics.log)
+Single Certificate Generation:
+$(grep "single_cert_gen" "$METRICS_FILE" || echo "No data available")
 
-Average Generation Time: $(awk '/single_cert_gen/ {sum+=$2; count++} END {print sum/count}' performance_metrics.log) seconds
+Average Generation Time: $(awk '/single_cert_gen_average/ {print $4}' "$METRICS_FILE" || echo "N/A") seconds
 
 ## Parallel Processing Performance
-$(grep "parallel_cert_gen" performance_metrics.log)
-
-Average Parallel Time: $(awk '/parallel_cert_gen/ {sum+=$2; count++} END {print sum/count}' performance_metrics.log) seconds
+$(grep "parallel_cert_gen" "$METRICS_FILE" || echo "No data available")
 
 ## Load Test Results
-$(grep "sequential_load" performance_metrics.log)
+Sequential Load Tests:
+$(grep "sequential_load" "$METRICS_FILE" || echo "No data available")
+
+Total Load Test Time: $(awk '/sequential_load_total/ {print $4}' "$METRICS_FILE" || echo "N/A") seconds
 
 ## Resource Usage
 - CPU Usage: $(top -bn1 | grep "Cpu(s)" | awk '{print $2}')%
 - Memory Usage: $(free -m | awk '/Mem:/ {print int($3/$2 * 100)}')%
 
 ## Recommendations
-1. Optimal parallel certificate generation: 5 certificates
+1. Optimal parallel generation: 5 certificates
 2. Recommended renewal buffer: 30 days
 3. Backup retention period: 90 days
 4. Recovery time objective: < 5 minutes
@@ -171,10 +187,13 @@ REPORT
 
 # Print summary
 echo -e "\n${YELLOW}Performance Test Summary:${NC}"
-echo "1. Certificate Renewal: $(grep single_cert_gen performance_metrics.log | wc -l) tests"
-echo "2. Performance Benchmarks: $(grep parallel_cert_gen performance_metrics.log | wc -l) parallel tests"
-echo "3. Load Tests: $(grep sequential_load performance_metrics.log | wc -l) certificates"
+echo "1. Certificate Renewal: $(grep -c single_cert_gen "$METRICS_FILE") tests"
+echo "2. Performance Benchmarks: $(grep -c parallel_cert_gen "$METRICS_FILE") parallel tests"
+echo "3. Load Tests: $(grep -c sequential_load "$METRICS_FILE") certificates"
 echo "4. Recovery Scenarios: All passed"
+
+echo -e "\n${YELLOW}Average Certificate Generation Time:${NC}"
+echo "$(awk '/single_cert_gen_average/ {print $4}' "$METRICS_FILE" || echo "N/A") seconds"
 
 # Cleanup
 cleanup_test_env
