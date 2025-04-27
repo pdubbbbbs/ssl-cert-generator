@@ -2,6 +2,7 @@
 
 A robust tool for generating self-signed SSL certificates with advanced features for integration with Proxmox and Cloudflare.
 
+![CI/CD](https://github.com/pdubbbbbs/ssl-cert-generator/actions/workflows/test.yml/badge.svg)
 ![Version](https://img.shields.io/badge/Version-1.1.0-brightgreen)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
