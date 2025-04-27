@@ -139,5 +139,196 @@ check_openssl() {
     log_message "Using $version"
 }
 
-# Rest of the script remains the same...
+# Main function to generate SSL certificate
+main() {
+    local OPTIND opt
+    
+    # Load defaults from config
+    load_config
 
+    # Parse command line arguments
+    while getopts ":ho:d:c:s:l:e:v:k:-:" opt; do
+        case $opt in
+            -)
+                case "${OPTARG}" in
+                    help)
+                        show_help
+                        exit 0
+                        ;;
+                    output)
+                        OUTPUT_DIR="${!OPTIND}"; OPTIND=$((OPTIND+1))
+                        ;;
+                    domain)
+                        DOMAIN="${!OPTIND}"; OPTIND=$((OPTIND+1))
+                        ;;
+                    country)
+                        COUNTRY="${!OPTIND}"; OPTIND=$((OPTIND+1))
+                        ;;
+                    state)
+                        STATE="${!OPTIND}"; OPTIND=$((OPTIND+1))
+                        ;;
+                    locality)
+                        LOCALITY="${!OPTIND}"; OPTIND=$((OPTIND+1))
+                        ;;
+                    organization)
+                        ORGANIZATION="${!OPTIND}"; OPTIND=$((OPTIND+1))
+                        ;;
+                    unit)
+                        ORG_UNIT="${!OPTIND}"; OPTIND=$((OPTIND+1))
+                        ;;
+                    email)
+                        EMAIL="${!OPTIND}"; OPTIND=$((OPTIND+1))
+                        ;;
+                    validity)
+                        VALIDITY_DAYS="${!OPTIND}"; OPTIND=$((OPTIND+1))
+                        ;;
+                    key-size)
+                        KEY_SIZE="${!OPTIND}"; OPTIND=$((OPTIND+1))
+                        ;;
+                    config)
+                        CONFIG_FILE="${!OPTIND}"; OPTIND=$((OPTIND+1))
+                        load_config
+                        ;;
+                    *)
+                        log_error "Unknown option --${OPTARG}"
+                        show_help
+                        exit 1
+                        ;;
+                esac
+                ;;
+            h)
+                show_help
+                exit 0
+                ;;
+            o)
+                OUTPUT_DIR="$OPTARG"
+                ;;
+            d)
+                DOMAIN="$OPTARG"
+                ;;
+            c)
+                COUNTRY="$OPTARG"
+                ;;
+            s)
+                STATE="$OPTARG"
+                ;;
+            l)
+                LOCALITY="$OPTARG"
+                ;;
+            org)
+                ORGANIZATION="$OPTARG"
+                ;;
+            ou)
+                ORG_UNIT="$OPTARG"
+                ;;
+            e)
+                EMAIL="$OPTARG"
+                ;;
+            v)
+                VALIDITY_DAYS="$OPTARG"
+                ;;
+            k)
+                KEY_SIZE="$OPTARG"
+                ;;
+            \?)
+                log_error "Invalid option: -$OPTARG"
+                show_help
+                exit 1
+                ;;
+            :)
+                log_error "Option -$OPTARG requires an argument"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+
+    # Check OpenSSL installation
+    check_openssl
+
+    # Validate parameters
+    validate_parameters
+
+    # Create output directory if it doesn't exist
+    if [ ! -d "$OUTPUT_DIR" ]; then
+        log_message "Creating output directory: $OUTPUT_DIR"
+        mkdir -p "$OUTPUT_DIR" || {
+            log_error "Failed to create directory: $OUTPUT_DIR"
+            exit 1
+        }
+    fi
+
+    # Set file paths
+    local CERT_FILE="$OUTPUT_DIR/$DOMAIN.crt"
+    local KEY_FILE="$OUTPUT_DIR/$DOMAIN.key"
+    local CSR_FILE="$OUTPUT_DIR/$DOMAIN.csr"
+    local CONFIG_FILE="$OUTPUT_DIR/$DOMAIN.cnf"
+
+    # Create OpenSSL configuration
+    cat > "$CONFIG_FILE" << EOF
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+C = ${COUNTRY:-US}
+ST = ${STATE:-California}
+L = ${LOCALITY:-San Francisco}
+O = ${ORGANIZATION:-Example Organization}
+OU = ${ORG_UNIT:-IT Department}
+CN = $DOMAIN
+emailAddress = ${EMAIL:-admin@example.com}
+
+[v3_req]
+keyUsage = keyEncipherment, dataEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = $DOMAIN
+DNS.2 = www.$DOMAIN
+EOF
+
+    # Generate private key
+    log_message "Generating private key..."
+    openssl genrsa -out "$KEY_FILE" "$KEY_SIZE" || {
+        log_error "Failed to generate private key"
+        exit 1
+    }
+
+    # Generate CSR
+    log_message "Generating certificate signing request..."
+    openssl req -new -key "$KEY_FILE" -out "$CSR_FILE" -config "$CONFIG_FILE" || {
+        log_error "Failed to generate CSR"
+        exit 1
+    }
+
+    # Generate self-signed certificate
+    log_message "Generating self-signed certificate..."
+    openssl x509 -req -days "$VALIDITY_DAYS" -in "$CSR_FILE" -signkey "$KEY_FILE" \
+        -out "$CERT_FILE" -extensions v3_req -extfile "$CONFIG_FILE" || {
+        log_error "Failed to generate certificate"
+        exit 1
+    }
+
+    # Set permissions
+    chmod 600 "$KEY_FILE" || log_error "Failed to set permissions on key file"
+    chmod 644 "$CERT_FILE" || log_error "Failed to set permissions on certificate file"
+
+    log_message "Certificate generation complete!"
+    log_message "Certificate: $CERT_FILE"
+    log_message "Private key: $KEY_FILE"
+    log_message "Validity: $VALIDITY_DAYS days"
+
+    return 0
+}
+
+# Execute main function with all arguments
+# Wrap in a conditional to handle errors gracefully
+if ! main "$@"; then
+    log_error "Certificate generation failed"
+    exit 1
+fi
+
+exit 0
