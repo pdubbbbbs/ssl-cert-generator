@@ -1,0 +1,31 @@
+Proxmox Through Cloudflare Setup Guide:
+
+1. Cloudflare SSL/TLS Settings:
+   - Go to SSL/TLS section in Cloudflare dashboard
+   - Set SSL/TLS encryption mode to "Full" (not Flexible)
+   - Enable "Enable HSTS" under Edge Certificates if you want extra security
+
+2. Required Page Rules (create these in Cloudflare):
+   URL: pve.sslgen.cam:8006/*
+   Settings:
+   - SSL: Full
+   - WebSockets: On
+
+3. Firewall Rules (if using Cloudflare WAF):
+   Allow these protocols:
+   - WebSocket
+   - HTTPS
+
+4. DNS Settings:
+   Type: A
+   Name: pve
+   Content: 192.168.12.34
+   Proxy status: Proxied (Orange cloud)
+   TTL: Auto
+
+5. Additional Required Settings:
+   In Cloudflare dash > Network:
+   - Enable WebSockets
+   - Set Proxy Port 8006 as allowed port
+
+Would you like me to help you set these up using the Cloudflare API?

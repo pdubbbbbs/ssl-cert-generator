@@ -1,0 +1,10 @@
+To set up your Cloudflare Tunnel:
+
+1. First, authenticate cloudflared:
+   Run this command on your Proxmox server:
+   cloudflared tunnel login
+
+2. When prompted, copy the URL and open it in your browser
+   You'll need to log in to Cloudflare and authorize the tunnel
+
+Would you like to proceed with the authentication step?

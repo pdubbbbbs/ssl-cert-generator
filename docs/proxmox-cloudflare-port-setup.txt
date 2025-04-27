@@ -1,0 +1,35 @@
+To proxy Proxmox through Cloudflare, we need to make these changes:
+
+1. First, configure Proxmox to listen on port 443:
+
+SSH into your Proxmox server and run:
+```bash
+# Create backup of config
+cp /etc/default/pveproxy /etc/default/pveproxy.bak
+
+# Modify the configuration to use port 443
+echo 'LISTEN_IP=""' > /etc/default/pveproxy
+echo 'ALLOW_FROM="0.0.0.0/0"' >> /etc/default/pveproxy
+echo 'DENY_FROM=""' >> /etc/default/pveproxy
+echo 'POLICY="allow"' >> /etc/default/pveproxy
+echo 'HONOR_CIPHER_ORDER=1' >> /etc/default/pveproxy
+echo 'DHPARAMS=/etc/pve/local/pveproxy-ssl.pem' >> /etc/default/pveproxy
+echo 'PORT=443' >> /etc/default/pveproxy
+
+# Restart pveproxy
+systemctl restart pveproxy
+```
+
+2. Then update Cloudflare:
+   - Change the A record to:
+     Type: A
+     Name: pve
+     Content: 192.168.12.34
+     Proxy status: Proxied (Orange cloud)
+     TTL: Auto
+
+3. Configure SSL/TLS in Cloudflare:
+   - Set SSL/TLS encryption mode to "Full"
+   - Enable "Enable HSTS" (optional but recommended)
+
+Would you like me to help implement these changes on your Proxmox server?

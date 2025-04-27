@@ -40,6 +40,24 @@ validate_email() {
     fi
 }
 
+# Function to validate IP address
+validate_ip() {
+    local ip="$1"
+    if [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        echo "Error: Invalid IP address format: $ip" >&2
+        return 1
+    fi
+    
+    # Validate each octet
+    IFS='.' read -r -a octets <<< "$ip"
+    for octet in "${octets[@]}"; do
+        if [[ "$octet" -gt 255 ]]; then
+            echo "Error: Invalid IP address (octet > 255): $ip" >&2
+            return 1
+        fi
+    done
+}
+
 # Function to validate domain name
 validate_domain() {
     local domain="$1"
@@ -72,6 +90,7 @@ Options:
     -h, --help              Show this help message
     -o, --output DIR       Output directory for certificate files (default: $OUTPUT_DIR)
     -d, --domain DOMAIN    Domain name for the certificate (Common Name)
+    -i, --ip IP_ADDR       IP address to include in the certificate (can be used multiple times)
     -c, --country CODE     Two-letter country code (default: ${DEFAULT_COUNTRY:-US})
     -s, --state STATE      State or province name (default: ${DEFAULT_STATE})
     -l, --locality CITY    City name (default: ${DEFAULT_LOCALITY})
@@ -118,6 +137,11 @@ validate_parameters() {
         validate_email "$EMAIL" || errors=$((errors + 1))
     fi
 
+    # Validate IP addresses if provided
+    for ip in "${IP_ADDRESSES[@]}"; do
+        validate_ip "$ip" || errors=$((errors + 1))
+    done
+
     validate_numeric "$VALIDITY_DAYS" "Validity days" || errors=$((errors + 1))
     validate_numeric "$KEY_SIZE" "Key size" || errors=$((errors + 1))
 
@@ -147,7 +171,10 @@ main() {
     load_config
 
     # Parse command line arguments
-    while getopts ":ho:d:c:s:l:e:v:k:-:" opt; do
+    # Initialize IP address array
+    declare -a IP_ADDRESSES
+    
+    while getopts ":ho:d:i:c:s:l:e:v:k:-:" opt; do
         case $opt in
             -)
                 case "${OPTARG}" in
@@ -160,6 +187,9 @@ main() {
                         ;;
                     domain)
                         DOMAIN="${!OPTIND}"; OPTIND=$((OPTIND+1))
+                        ;;
+                    ip)
+                        IP_ADDRESSES+=("${!OPTIND}"); OPTIND=$((OPTIND+1))
                         ;;
                     country)
                         COUNTRY="${!OPTIND}"; OPTIND=$((OPTIND+1))
@@ -205,6 +235,9 @@ main() {
                 ;;
             d)
                 DOMAIN="$OPTARG"
+                ;;
+            i)
+                IP_ADDRESSES+=("$OPTARG")
                 ;;
             c)
                 COUNTRY="$OPTARG"
@@ -265,6 +298,7 @@ main() {
     local CONFIG_FILE="$OUTPUT_DIR/$DOMAIN.cnf"
 
     # Create OpenSSL configuration
+    # Start OpenSSL configuration
     cat > "$CONFIG_FILE" << EOF
 [req]
 distinguished_name = req_distinguished_name
@@ -289,6 +323,13 @@ subjectAltName = @alt_names
 DNS.1 = $DOMAIN
 DNS.2 = www.$DOMAIN
 EOF
+
+    # Add IP addresses to alt_names if provided
+    local ip_count=1
+    for ip in "${IP_ADDRESSES[@]}"; do
+        echo "IP.$ip_count = $ip" >> "$CONFIG_FILE"
+        ip_count=$((ip_count + 1))
+    done
 
     # Generate private key
     log_message "Generating private key..."
@@ -318,9 +359,17 @@ EOF
 
     log_message "Certificate generation complete!"
     log_message "Certificate: $CERT_FILE"
+    log_message "Certificate: $CERT_FILE"
     log_message "Private key: $KEY_FILE"
     log_message "Validity: $VALIDITY_DAYS days"
-
+    
+    # List IP addresses if included
+    if [ ${#IP_ADDRESSES[@]} -gt 0 ]; then
+        log_message "IP addresses included in certificate:"
+        for ip in "${IP_ADDRESSES[@]}"; do
+            log_message "  - $ip"
+        done
+    fi
     return 0
 }
 

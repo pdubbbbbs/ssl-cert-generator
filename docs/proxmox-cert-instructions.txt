@@ -1,0 +1,24 @@
+Proxmox SSL Certificate Installation Instructions:
+
+1. Copy the certificate files to your Proxmox server:
+   scp ./certs/pve.sslgen.cam.* root@192.168.12.34:/root/
+
+2. On your Proxmox server, execute these commands:
+   cd /root
+   cp pve.sslgen.cam.key /etc/pve/local/pveproxy-ssl.key
+   cp pve.sslgen.cam.crt /etc/pve/local/pveproxy-ssl.pem
+   systemctl restart pveproxy
+   
+3. Update your Cloudflare DNS:
+   Add an A record for pve.sslgen.cam pointing to 192.168.12.34
+   Enable Proxied status if you want Cloudflare protection
+
+4. Testing the installation:
+   - Access your Proxmox web interface at: https://pve.sslgen.cam:8006
+   - Verify the certificate details in your browser
+
+Note: If you get any certificate warnings, clear your browser cache and reload.
+
+Backup commands (save these for reference):
+cp /etc/pve/local/pveproxy-ssl.key /etc/pve/local/pveproxy-ssl.key.bak
+cp /etc/pve/local/pveproxy-ssl.pem /etc/pve/local/pveproxy-ssl.pem.bak
