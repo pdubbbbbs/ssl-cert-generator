@@ -1,0 +1,72 @@
+[2025-04-26 21:58:33] Result: PASSED
+[2025-04-26 21:58:33] Test: Simulate certificate corruption
+[2025-04-26 21:58:33] Command: echo 'corrupted' > '/home/sitboo/ssl-cert-generator/tests/test_results/certs/pve.sslgen.cam.crt'
+[2025-04-26 21:58:33] Result: PASSED
+[2025-04-26 21:58:33] Test: Detect corruption
+[2025-04-26 21:58:33] Command: ! openssl x509 -in '/home/sitboo/ssl-cert-generator/tests/test_results/certs/pve.sslgen.cam.crt' -noout -text
+Could not read certificate from /home/sitboo/ssl-cert-generator/tests/test_results/certs/pve.sslgen.cam.crt
+Unable to load certificate
+[2025-04-26 21:58:33] Result: PASSED
+[2025-04-26 21:58:33] Test: Recover from corruption
+[2025-04-26 21:58:33] Command: mv '/home/sitboo/ssl-cert-generator/tests/test_results/certs/pve.sslgen.cam.crt.bak' '/home/sitboo/ssl-cert-generator/tests/test_results/certs/pve.sslgen.cam.crt' &&          openssl x509 -in '/home/sitboo/ssl-cert-generator/tests/test_results/certs/pve.sslgen.cam.crt' -noout -text
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number:
+            4e:8c:da:ad:9c:83:94:10:69:c9:5f:3c:5b:22:4a:00:eb:17:34:17
+        Signature Algorithm: sha256WithRSAEncryption
+        Issuer: C = US, ST = California, L = San Francisco, O = Example Organization, OU = IT Department, CN = pve.sslgen.cam, emailAddress = admin@example.com
+        Validity
+            Not Before: Apr 27 06:58:19 2025 GMT
+            Not After : Apr 27 06:58:19 2026 GMT
+        Subject: C = US, ST = California, L = San Francisco, O = Example Organization, OU = IT Department, CN = pve.sslgen.cam, emailAddress = admin@example.com
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+                Public-Key: (2048 bit)
+                Modulus:
+                    00:bd:24:d6:c0:5d:ed:3e:b9:d7:38:d5:ca:d7:3e:
+                    01:97:d9:22:a7:26:5f:d2:6d:9d:7e:10:0f:cc:9a:
+                    d7:5f:24:0d:6f:fa:3d:ea:31:6f:82:66:6a:84:d4:
+                    6e:02:f6:cf:a2:36:b0:7d:6b:80:90:27:0c:c8:53:
+                    13:94:a0:0f:be:93:ef:37:31:d2:34:f2:bb:e7:ba:
+                    64:07:37:78:38:48:82:d9:7b:36:59:e8:b8:f5:28:
+                    ee:f8:ea:2e:c7:38:3d:ea:12:3a:b1:d8:d5:99:2a:
+                    6c:fc:b2:2d:55:ac:38:86:49:7c:3f:33:a2:9f:25:
+                    b8:32:7e:64:fe:38:1a:62:2d:6f:03:5a:3f:f9:da:
+                    f8:45:e3:92:65:77:e8:ad:b8:24:9f:71:c5:6e:8a:
+                    66:02:65:75:8e:ff:76:75:cc:5f:0c:4b:96:3f:1b:
+                    2e:e5:7d:f0:bb:56:6a:b5:d6:9f:2f:31:be:83:f1:
+                    29:7a:7e:ea:10:e0:84:f4:3d:1d:7a:56:26:e7:bd:
+                    ae:bb:bf:2c:4a:6a:21:a7:a1:11:bb:59:b3:91:46:
+                    5f:a4:2f:11:44:67:0b:73:19:09:0f:9f:30:b0:99:
+                    c5:ba:c9:88:6c:7e:39:8f:80:5a:ca:14:fa:be:45:
+                    3e:10:0d:94:97:50:d0:e9:86:91:42:ca:46:71:07:
+                    29:dd
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Key Usage: 
+                Key Encipherment, Data Encipherment
+            X509v3 Extended Key Usage: 
+                TLS Web Server Authentication
+            X509v3 Subject Alternative Name: 
+                DNS:pve.sslgen.cam, DNS:www.pve.sslgen.cam, IP Address:192.168.12.34
+            X509v3 Subject Key Identifier: 
+                F5:8A:99:8B:73:9F:56:47:D4:E4:A4:E9:F3:25:B3:4B:92:2A:60:DB
+    Signature Algorithm: sha256WithRSAEncryption
+    Signature Value:
+        9a:e2:a7:cf:fb:fd:83:05:43:83:f1:9b:6f:9a:ca:14:15:b0:
+        69:c6:e0:a7:dc:ef:91:c7:bd:10:c1:17:9e:2b:34:20:5a:2f:
+        85:44:8e:44:ff:b8:4b:06:e8:f3:7a:42:3a:82:65:43:57:da:
+        6f:d4:fb:3b:01:2a:bb:a3:63:4b:bc:be:24:4f:09:54:d8:23:
+        74:22:29:c8:75:14:cd:43:5b:27:2c:34:9d:07:60:e9:1c:15:
+        a6:37:f0:f5:cf:bc:11:db:3e:44:37:33:0d:35:74:0f:6c:d0:
+        1a:6d:fa:26:ad:da:58:31:45:44:f9:31:3b:48:87:7a:68:f7:
+        74:e0:28:55:8b:79:96:03:4d:f0:33:43:6e:24:13:9d:6b:f1:
+        03:1a:8f:f0:6e:31:f6:12:43:62:a1:61:72:18:ae:09:02:36:
+        af:1a:6d:34:ac:65:98:a4:dd:fb:aa:82:2b:ea:9f:ec:38:57:
+        95:63:fd:41:1b:89:31:d9:63:3d:53:21:36:a8:31:f5:d8:f8:
+        22:8c:bb:3b:6a:2a:eb:0a:76:e3:58:cb:f7:e8:85:ff:32:51:
+        45:85:8b:6e:98:9c:2e:df:67:39:cf:5f:9d:d0:e3:f5:5e:42:
+        22:4c:e2:a6:1c:e6:23:91:74:58:fe:48:d5:d7:51:89:eb:b5:
+        02:ce:02:fc
+[2025-04-26 21:58:33] Result: PASSED

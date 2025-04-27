@@ -1,0 +1,23 @@
+Test environment initialized at Sat Apr 26 09:58:18 PM HDT 2025
+2025-04-26 21:58:18 - initial_cert_generation: .547788056 seconds
+2025-04-26 21:58:19 - cert_renewal: .568841493 seconds
+2025-04-26 21:58:19 - single_cert_gen_1: .450545214 seconds
+2025-04-26 21:58:20 - single_cert_gen_2: 1.013585348 seconds
+2025-04-26 21:58:21 - single_cert_gen_3: .413342396 seconds
+2025-04-26 21:58:21 - single_cert_gen_4: .734490778 seconds
+2025-04-26 21:58:23 - single_cert_gen_5: 1.131724941 seconds
+2025-04-26 21:58:23 - single_cert_gen_average: 0 seconds
+2025-04-26 21:58:24 - parallel_cert_gen_1: 1.139464949 seconds
+2025-04-26 21:58:25 - parallel_cert_gen_2: 1.052149660 seconds
+2025-04-26 21:58:26 - parallel_cert_gen_3: 1.069721576 seconds
+2025-04-26 21:58:26 - sequential_load_1: .489648039 seconds
+2025-04-26 21:58:27 - sequential_load_2: .502304989 seconds
+2025-04-26 21:58:28 - sequential_load_3: .832205252 seconds
+2025-04-26 21:58:28 - sequential_load_4: .756128464 seconds
+2025-04-26 21:58:30 - sequential_load_5: 1.121546830 seconds
+2025-04-26 21:58:30 - sequential_load_6: .546690372 seconds
+2025-04-26 21:58:31 - sequential_load_7: .591478288 seconds
+2025-04-26 21:58:31 - sequential_load_8: .695428920 seconds
+2025-04-26 21:58:32 - sequential_load_9: .445493942 seconds
+2025-04-26 21:58:33 - sequential_load_10: .749032377 seconds
+2025-04-26 21:58:33 - sequential_load_total: 6.790868339 seconds
