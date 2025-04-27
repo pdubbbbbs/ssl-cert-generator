@@ -26,42 +26,17 @@ jobs:
       run: |
         shellcheck generate-ssl-cert.sh
         shellcheck install-proxmox-cert.sh
+        shellcheck tests/run-tests.sh
       if: steps.install.outcome == 'success'
 
-    - name: Test certificate generation
-      id: cert_gen
+    - name: Run test suite
+      id: test_suite
       run: |
-        chmod +x generate-ssl-cert.sh
-        # Test with minimal parameters
-        ./generate-ssl-cert.sh -d test.example.com -o ./certs
-        if [ ! -f "./certs/test.example.com.crt" ]; then
-          echo "Basic certificate generation failed"
-          exit 1
-        fi
-        
-        # Test with all parameters
-        ./generate-ssl-cert.sh \
-          -d full.example.com \
-          -o ./certs \
-          -c US \
-          -s "California" \
-          -l "San Francisco" \
-          -org "Test Org" \
-          -ou "Test Unit" \
-          -e "test@example.com" \
-          -v 365 \
-          -k 2048 \
-          -i "192.168.1.1"
-        
-        if [ ! -f "./certs/full.example.com.crt" ]; then
-          echo "Full parameter certificate generation failed"
-          exit 1
-        fi
-        
-        # Verify certificates
-        echo "Verifying certificates..."
-        openssl x509 -in ./certs/test.example.com.crt -text -noout
-        openssl x509 -in ./certs/full.example.com.crt -text -noout
+        cd tests
+        ./run-tests.sh
+        echo "TEST_LOG<<EOF" >> $GITHUB_ENV
+        cat test_results.log >> $GITHUB_ENV
+        echo "EOF" >> $GITHUB_ENV
       if: steps.lint.outcome == 'success'
 
     - name: Security scan
@@ -69,7 +44,7 @@ jobs:
       uses: github/codeql-action/init@v2
       with:
         languages: shell
-      if: steps.cert_gen.outcome == 'success'
+      if: steps.test_suite.outcome == 'success'
 
     - name: Run CodeQL Analysis
       id: codeql
@@ -80,13 +55,22 @@ jobs:
       id: report
       if: always()
       run: |
-        echo "Test Results Summary:" > test_report.txt
-        echo "-------------------" >> test_report.txt
-        echo "Dependencies: ${{ steps.install.outcome }}" >> test_report.txt
-        echo "Linting: ${{ steps.lint.outcome }}" >> test_report.txt
-        echo "Certificate Generation: ${{ steps.cert_gen.outcome }}" >> test_report.txt
-        echo "Security Scan: ${{ steps.security.outcome }}" >> test_report.txt
-        echo "CodeQL Analysis: ${{ steps.codeql.outcome }}" >> test_report.txt
+        {
+          echo "SSL Certificate Generator Test Report"
+          echo "==================================="
+          echo
+          echo "Build Status:"
+          echo "-------------"
+          echo "Dependencies Installation: ${{ steps.install.outcome }}"
+          echo "Shellcheck Linting: ${{ steps.lint.outcome }}"
+          echo "Test Suite: ${{ steps.test_suite.outcome }}"
+          echo "Security Scan: ${{ steps.security.outcome }}"
+          echo "CodeQL Analysis: ${{ steps.codeql.outcome }}"
+          echo
+          echo "Detailed Test Results:"
+          echo "--------------------"
+          echo "${{ env.TEST_LOG }}"
+        } > test_report.txt
 
     - name: Send email on failure
       if: failure()
@@ -96,22 +80,24 @@ jobs:
         server_port: ${{secrets.SMTP_PORT}}
         username: ${{secrets.SMTP_USERNAME}}
         password: ${{secrets.SMTP_PASSWORD}}
-        subject: "⚠️ SSL Certificate Generator: Build Failed"
+        subject: "⚠️ SSL Certificate Generator: Tests Failed"
         body: |
-          SSL Certificate Generator build has failed!
+          SSL Certificate Generator tests have failed!
           
           Repository: ${{ github.repository }}
           Commit: ${{ github.sha }}
+          Author: ${{ github.actor }}
           
-          Test Results:
+          Failed Step: ${{ steps.install.outcome == 'failure' && 'Dependencies' || steps.lint.outcome == 'failure' && 'Linting' || steps.test_suite.outcome == 'failure' && 'Test Suite' || steps.security.outcome == 'failure' && 'Security Scan' || steps.codeql.outcome == 'failure' && 'CodeQL Analysis' || 'Unknown' }}
+          
+          Test Report:
           $(cat test_report.txt)
-          
-          Failed Step: ${{ steps.install.outcome == 'failure' && 'Dependencies' || steps.lint.outcome == 'failure' && 'Linting' || steps.cert_gen.outcome == 'failure' && 'Certificate Generation' || steps.security.outcome == 'failure' && 'Security Scan' || steps.codeql.outcome == 'failure' && 'CodeQL Analysis' || 'Unknown' }}
           
           View detailed logs:
           ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         to: ${{secrets.NOTIFICATION_EMAIL}}
         from: SSL Certificate Generator CI <${{secrets.SMTP_USERNAME}}>
+        attachments: ./test_report.txt
 
     - name: Send success notification
       if: success()
@@ -121,14 +107,15 @@ jobs:
         server_port: ${{secrets.SMTP_PORT}}
         username: ${{secrets.SMTP_USERNAME}}
         password: ${{secrets.SMTP_PASSWORD}}
-        subject: "✅ SSL Certificate Generator: Build Succeeded"
+        subject: "✅ SSL Certificate Generator: All Tests Passed"
         body: |
-          SSL Certificate Generator build completed successfully!
+          SSL Certificate Generator tests completed successfully!
           
           Repository: ${{ github.repository }}
           Commit: ${{ github.sha }}
+          Author: ${{ github.actor }}
           
-          Test Results:
+          Test Report:
           $(cat test_report.txt)
           
           All tests passed successfully. No action required.
@@ -137,4 +124,5 @@ jobs:
           ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         to: ${{secrets.NOTIFICATION_EMAIL}}
         from: SSL Certificate Generator CI <${{secrets.SMTP_USERNAME}}>
+        attachments: ./test_report.txt
 
