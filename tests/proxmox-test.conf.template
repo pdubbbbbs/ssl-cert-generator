@@ -1,0 +1,37 @@
+# Proxmox Test Configuration Template
+# Copy this file to proxmox-test.conf and update with your values
+
+# Proxmox server details
+PROXMOX_HOST="192.168.12.34"        # Your Proxmox server IP address
+PROXMOX_DOMAIN="pve.example.com"     # Your Proxmox server domain name
+PROXMOX_PORT="22"                    # SSH port (default: 22)
+PROXMOX_USER="root"                  # SSH user (usually root)
+PROXMOX_SSH_KEY="~/.ssh/id_rsa"     # Path to SSH private key
+
+# Test configuration
+TEST_CERT_VALIDITY=365               # Certificate validity in days
+TEST_KEY_SIZE=4096                   # Key size in bits
+TEST_COUNTRY="US"                    # Certificate country code
+TEST_STATE="California"              # Certificate state/province
+TEST_LOCALITY="San Francisco"        # Certificate city
+TEST_ORG="Your Organization"         # Organization name
+TEST_OU="IT Department"              # Organizational unit
+TEST_EMAIL="admin@example.com"       # Admin email address
+
+# Web interface configuration
+PROXMOX_WEB_PORT=8006               # Proxmox web interface port
+PROXMOX_API_TOKEN=""                # Optional: Proxmox API token for additional tests
+
+# Backup configuration
+BACKUP_DIR="/root/cert_backups"     # Directory for certificate backups
+KEEP_BACKUPS=5                      # Number of backup versions to keep
+
+# Test timeouts
+CONNECTION_TIMEOUT=5                # Connection timeout in seconds
+SERVICE_CHECK_TIMEOUT=30            # Service check timeout in seconds
+ROTATION_WAIT_TIME=5               # Wait time after certificate rotation
+
+# Additional test options
+VERIFY_SSL=false                    # Whether to verify SSL in curl tests
+RUN_EXTENDED_TESTS=false           # Run additional time-consuming tests
+CLEANUP_AFTER_TESTS=true           # Remove temporary files after testing
