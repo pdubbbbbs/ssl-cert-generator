@@ -47,6 +47,29 @@ check_proxmox_service() {
     return 0
 }
 
+# Function to check web interface with retry
+check_web_interface() {
+    local retries=5
+    local wait_time=5
+    local attempt=1
+    local output
+
+    while [ $attempt -le $retries ]; do
+        echo "Attempt $attempt of $retries..."
+        output=$(curl -k -s -o /dev/null -w '%{http_code}' "https://${PROXMOX_HOST}:${PROXMOX_WEB_PORT}/api2/json/version" 2>&1)
+        if [[ "$output" == "200" || "$output" == "401" ]]; then
+            # Both 200 (success) and 401 (unauthorized) mean the interface is responding
+            return 0
+        fi
+        echo "Waiting ${wait_time}s before next attempt..."
+        sleep $wait_time
+        attempt=$((attempt + 1))
+    done
+    
+    handle_error "Web interface check failed after $retries attempts" "$output"
+    return 1
+}
+
 # Initialize test environment
 init_test_env
 
@@ -108,7 +131,8 @@ run_test "Restart pveproxy service" \
     "ssh -i $PROXMOX_SSH_KEY -p $PROXMOX_PORT ${PROXMOX_USER}@${PROXMOX_HOST} 'systemctl restart pveproxy'"
 
 # Wait for service to start
-sleep 5
+echo "Waiting for service to stabilize..."
+sleep 10
 
 # Test Proxmox service status
 echo -e "${YELLOW}Testing Proxmox services...${NC}"
@@ -129,7 +153,7 @@ run_test "Check key permissions" \
 echo -e "${YELLOW}Testing web interface...${NC}"
 
 run_test "Check web interface availability" \
-    "curl -k -s -o /dev/null -w '%{http_code}' https://${PROXMOX_HOST}:${PROXMOX_WEB_PORT}/api2/json/version | grep -q 200"
+    "check_web_interface"
 
 # Test cleanup
 echo -e "${YELLOW}Testing cleanup...${NC}"
@@ -161,6 +185,12 @@ $(cat test_results.log)
 2. Monitor certificate expiration dates
 3. Keep secure backups of certificates
 4. Verify web interface accessibility after changes
+
+## Next Steps
+1. Set up automated certificate renewal
+2. Configure monitoring for certificate expiration
+3. Implement automated backups
+4. Document recovery procedures
 REPORT
 
 # Print summary and cleanup
