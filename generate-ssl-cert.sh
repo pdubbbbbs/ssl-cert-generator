@@ -3,7 +3,6 @@
 # SSL Certificate Generator
 # Author: Philip S. Wright
 # Version: 1.1.0
-# Description: A script to generate self-signed SSL certificates with customizable attributes
 
 # Exit on any error
 set -e
@@ -15,34 +14,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_TEMPLATE="$SCRIPT_DIR/config.template.conf"
 CONFIG_FILE="$SCRIPT_DIR/config.conf"
 
-# Load configuration
-load_config() {
-    if [ -f "$CONFIG_FILE" ]; then
-        source "$CONFIG_FILE"
-    elif [ -f "$CONFIG_TEMPLATE" ]; then
-        source "$CONFIG_TEMPLATE"
-    else
-        echo "Warning: No configuration file found. Using hardcoded defaults." >&2
-    fi
-
-    # Set defaults if not defined in config
-    OUTPUT_DIR="${OUTPUT_DIR:-${DEFAULT_OUTPUT_DIR:-"."}}"
-    VALIDITY_DAYS="${VALIDITY_DAYS:-${DEFAULT_VALIDITY_DAYS:-365}}"
-    KEY_SIZE="${KEY_SIZE:-${DEFAULT_KEY_SIZE:-2048}}"
-}
-
 # Function to validate domain name, including wildcard domains
 validate_domain() {
     local domain="$1"
     local domain_pattern="^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
     local wildcard_pattern="^\*\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$"
     
-    # Check if it's a standard domain or a wildcard domain
     if [[ "$domain" =~ $domain_pattern ]] || [[ "$domain" =~ $wildcard_pattern ]]; then
         return 0
     else
         echo "Error: Invalid domain name format: $domain" >&2
-        echo "       Domain should be a valid hostname or a wildcard domain (*.example.com)" >&2
         return 1
     fi
 }
@@ -64,7 +45,6 @@ validate_ip() {
         return 1
     fi
     
-    # Validate each octet
     IFS='.' read -r -a octets <<< "$ip"
     for octet in "${octets[@]}"; do
         if [[ "$octet" -gt 255 ]]; then
@@ -74,45 +54,202 @@ validate_ip() {
     done
 }
 
-# Function to validate numeric value
-validate_numeric() {
-    local value="$1"
-    local name="$2"
-    if [[ ! "$value" =~ ^[0-9]+$ ]]; then
-        echo "Error: $name must be a positive number: $value" >&2
-        return 1
-    fi
+# Function to log messages with timestamp
+log_message() {
+    echo "[$(date "+%Y-%m-%d %H:%M:%S")] $1"
 }
 
-# Enhanced help function
-show_help() {
-    cat << EOF
-SSL Certificate Generator v1.1.0
+# Function to log errors
+log_error() {
+    echo "[$(date "+%Y-%m-%d %H:%M:%S")] ERROR: $1" >&2
+}
 
-Usage: $(basename "$0") [OPTIONS]
+# Check OpenSSL installation
+check_openssl() {
+    if ! command -v openssl &> /dev/null; then
+        log_error "OpenSSL is not installed or not in PATH"
+        exit 1
+    fi
+    local version=$(openssl version)
+    log_message "Using $version"
+}
 
-Generate self-signed SSL certificates with customizable attributes.
+# Main function
+main() {
+    local DOMAIN=""
+    local OUTPUT_DIR="."
+    local COUNTRY="US"
+    local STATE="California"
+    local LOCALITY="San Francisco"
+    local ORGANIZATION="Example Organization"
+    local ORG_UNIT="IT Department"
+    local EMAIL="admin@example.com"
+    local VALIDITY_DAYS=365
+    local KEY_SIZE=2048
+    declare -a IP_ADDRESSES
 
-Options:
-    -h, --help              Show this help message
-    -o, --output DIR       Output directory for certificate files (default: $OUTPUT_DIR)
-    -d, --domain DOMAIN    Domain name for the certificate (Common Name)
-                          Supports wildcard domains (e.g., *.example.com)
-    -i, --ip IP_ADDR       IP address to include in the certificate (can be used multiple times)
-    -c, --country CODE     Two-letter country code (default: ${DEFAULT_COUNTRY:-US})
-    -s, --state STATE      State or province name (default: ${DEFAULT_STATE})
-    -l, --locality CITY    City name (default: ${DEFAULT_LOCALITY})
-    -org, --organization ORG Organization name (default: ${DEFAULT_ORGANIZATION})
-    -ou, --unit UNIT       Organizational unit name (default: ${DEFAULT_ORG_UNIT})
-    -e, --email EMAIL      Email address (default: ${DEFAULT_EMAIL})
-    -v, --validity DAYS    Validity period in days (default: $VALIDITY_DAYS)
-    -k, --key-size BITS    Key size in bits (default: $KEY_SIZE)
-    --config FILE          Use specific configuration file
+    # Parse command line arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -d|--domain)
+                DOMAIN="$2"
+                shift 2
+                ;;
+            -o|--output)
+                OUTPUT_DIR="$2"
+                shift 2
+                ;;
+            -i|--ip)
+                IP_ADDRESSES+=("$2")
+                shift 2
+                ;;
+            -c|--country)
+                COUNTRY="$2"
+                shift 2
+                ;;
+            -s|--state)
+                STATE="$2"
+                shift 2
+                ;;
+            -l|--locality)
+                LOCALITY="$2"
+                shift 2
+                ;;
+            -org|--organization)
+                ORGANIZATION="$2"
+                shift 2
+                ;;
+            -ou|--unit)
+                ORG_UNIT="$2"
+                shift 2
+                ;;
+            -e|--email)
+                EMAIL="$2"
+                shift 2
+                ;;
+            -v|--validity)
+                VALIDITY_DAYS="$2"
+                shift 2
+                ;;
+            -k|--key-size)
+                KEY_SIZE="$2"
+                shift 2
+                ;;
+            *)
+                echo "Unknown option: $1"
+                exit 1
+                ;;
+        esac
+    done
 
-Examples:
-    # Regular domain certificate
-    $(basename "$0") -d example.com -o /etc/ssl/certs -c US -s "New York"
+    # Validate domain
+    if [ -z "$DOMAIN" ]; then
+        log_error "Domain name is required (-d or --domain)"
+        exit 1
+    fi
+    validate_domain "$DOMAIN" || exit 1
 
-    # Wildcard certificate
-    $(basename "$0") -d "*.example.com" -o /etc/ssl/certs -c US -s "California"
+    # Check if it's a wildcard certificate
+    local IS_WILDCARD=0
+    [[ "$DOMAIN" == \** ]] && IS_WILDCARD=1
 
+    # Create output directory
+    if [ ! -d "$OUTPUT_DIR" ]; then
+        mkdir -p "$OUTPUT_DIR" || {
+            log_error "Failed to create directory: $OUTPUT_DIR"
+            exit 1
+        }
+    fi
+
+    # Set file paths for wildcard certificates
+    local DOMAIN_FILENAME="${DOMAIN/\*/wildcard}"
+    local CERT_FILE="$OUTPUT_DIR/$DOMAIN_FILENAME.crt"
+    local KEY_FILE="$OUTPUT_DIR/$DOMAIN_FILENAME.key"
+    local CSR_FILE="$OUTPUT_DIR/$DOMAIN_FILENAME.csr"
+    local CONFIG_FILE="$OUTPUT_DIR/$DOMAIN_FILENAME.cnf"
+
+    # Create OpenSSL config
+    cat > "$CONFIG_FILE" << SSLCONFIG
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+C = $COUNTRY
+ST = $STATE
+L = $LOCALITY
+O = $ORGANIZATION
+OU = $ORG_UNIT
+CN = $DOMAIN
+emailAddress = $EMAIL
+
+[v3_req]
+keyUsage = keyEncipherment, dataEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+DNS.1 = $DOMAIN
+SSLCONFIG
+
+    # Add DNS entries based on domain type
+    if [ $IS_WILDCARD -eq 1 ]; then
+        local BASE_DOMAIN="${DOMAIN#\*.}"
+        echo "DNS.2 = $BASE_DOMAIN" >> "$CONFIG_FILE"
+        echo "DNS.3 = www.$BASE_DOMAIN" >> "$CONFIG_FILE"
+    else
+        echo "DNS.2 = www.$DOMAIN" >> "$CONFIG_FILE"
+    fi
+
+    # Add IP addresses
+    local ip_count=1
+    for ip in "${IP_ADDRESSES[@]}"; do
+        validate_ip "$ip" || exit 1
+        echo "IP.$ip_count = $ip" >> "$CONFIG_FILE"
+        ip_count=$((ip_count + 1))
+    done
+
+    # Generate private key
+    log_message "Generating private key..."
+    openssl genrsa -out "$KEY_FILE" "$KEY_SIZE" || {
+        log_error "Failed to generate private key"
+        exit 1
+    }
+
+    # Generate CSR
+    log_message "Generating certificate signing request..."
+    openssl req -new -key "$KEY_FILE" -out "$CSR_FILE" -config "$CONFIG_FILE" || {
+        log_error "Failed to generate CSR"
+        exit 1
+    }
+
+    # Generate certificate
+    log_message "Generating self-signed certificate..."
+    openssl x509 -req -days "$VALIDITY_DAYS" -in "$CSR_FILE" -signkey "$KEY_FILE" \
+        -out "$CERT_FILE" -extensions v3_req -extfile "$CONFIG_FILE" || {
+        log_error "Failed to generate certificate"
+        exit 1
+    }
+
+    # Set permissions
+    chmod 600 "$KEY_FILE" || log_error "Failed to set permissions on key file"
+    chmod 644 "$CERT_FILE" || log_error "Failed to set permissions on certificate file"
+
+    # Success message
+    log_message "Certificate generation complete!"
+    log_message "Certificate: $CERT_FILE"
+    log_message "Private key: $KEY_FILE"
+    log_message "Validity: $VALIDITY_DAYS days"
+    
+    if [ $IS_WILDCARD -eq 1 ]; then
+        log_message "Certificate type: Wildcard"
+        log_message "Protects: $DOMAIN and all subdomains of ${DOMAIN#\*.}"
+    fi
+
+    return 0
+}
+
+# Run main function with all arguments
+check_openssl
+main "$@" || exit 1
