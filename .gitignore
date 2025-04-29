@@ -1,43 +1,12 @@
-# Generated certificates and keys
-*.crt
-*.key
-*.pem
-*.csr
-*.pfx
-*.p12
-
-# Test artifacts
-test_results/
-test_certs/
-certs/
-
-# Logs
+# Test results and logs
+tests/test_results/
+tests/*.log
 *.log
 
 # Configuration backups
 *.conf.bak
-*_backup/
-cert_backups/
 
-# Temporary files
-*.tmp
-*.temp
-.DS_Store
-
-# Environment specific
-.env
-.env.local
-
-# IDE specific
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Test coverage
-coverage/
-.nyc_output/
-
-# Dependencies
-node_modules/
-vendor/
+# Certificate files
+*.crt
+*.key
+*.pem
